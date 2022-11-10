@@ -19,6 +19,60 @@ using std::vector;
 //
 using neighborhood = std::tuple<int, int, int>;
 
+// Represents the result of finding a cycle for a Cellular Automaton.
+//
+template <size_t N>
+struct forward_cycle_result {
+  int steps;
+  int total_hamming_distance;
+  bitset<N> state_cur;
+
+  forward_cycle_result(int s, int thd, bitset<N> sc)
+    : steps(s), total_hamming_distance(thd), state_cur(sc) {}
+
+  string to_string() {
+    return "{STEPS=" + std::to_string(steps) + ", THD="
+      + std::to_string(total_hamming_distance) + ", SC="
+      + state_cur.to_string() + "}";
+  }
+};
+
+// Represents the result of finding a cycle for a Time-Reversible Cellular
+// Automaton.
+//
+template <size_t N>
+struct reverse_cycle_result {
+  int steps;
+  int total_hamming_distance;
+  bitset<N> state_prev;
+  bitset<N> state_cur;
+
+  reverse_cycle_result(int s, int thd, bitset<N> sp, bitset<N> sc)
+    : steps(s), total_hamming_distance(thd), state_prev(sp), state_cur(sc) {}
+  
+  string to_string() {
+    return "{STEPS=" + std::to_string(steps) + ", THD="
+      + std::to_string(total_hamming_distance) + ", SP="
+      + state_prev.to_string() + ", SC=" + state_cur.to_string() + "}";
+  }
+};
+
+// Represents the result of analyzing a cycle.
+//
+struct analysis_result {
+  double avg_cycle_length;
+  double avg_hamming_distance;
+
+  analysis_result() : avg_cycle_length(0), avg_hamming_distance(0) {}
+  analysis_result(double cl, double hd)
+    : avg_cycle_length(cl), avg_hamming_distance(hd) {}
+  
+  string to_string() {
+    return "{AVG_CYC_LEN=" + std::to_string(avg_cycle_length) + ", AVG_HD="
+      + std::to_string(avg_hamming_distance) + "}";
+  }
+};
+
 // Returns the `n`-th bit of an integer `x`.
 // 
 inline bool get_bit(int x, int n) {
@@ -37,6 +91,17 @@ inline int index_left(int idx, int size) {
 //
 inline int index_right(int idx, int size) {
   return (idx + 1) % size;
+}
+
+// Returns the Hamming Distance between two bitsets of the same length.
+//
+template <size_t N>
+int hamming_distance(bitset<N> a, bitset<N> b) {
+  int dist = 0;
+  for (size_t i = 0; i < N; ++i) {
+    dist += (a[i] ^ b[i]);
+  }
+  return dist;
 }
 
 // Applies a Cellular Automaton rule for a single cell given the state of that
@@ -111,6 +176,123 @@ vector<bitset<N>> ca_reverse_rule(
   return states;
 }
 
+// Returns the number of steps, total hamming distance, and repeated state
+// found when searching a Cellular Automaton for a cycle given some input
+// state.
+//
+template <size_t N>
+forward_cycle_result<N> find_forward_cycle(int rule_num, bitset<N> state_cur) {
+  bitset<1 << N> seen_states;
+  bitset<N> state_next;
+  int steps = 0;
+  int total_hamming_distance = 0;
+  while (!seen_states[state_cur.to_ulong()]) {
+    seen_states[state_cur.to_ulong()] = 1;
+    ++steps;
+    for (size_t i = 0; i < N; ++i) {
+      state_next[i] = apply_forward_rule(
+        rule_num,
+        neighborhood(
+          state_cur[index_left(i, N)],
+          state_cur[i],
+          state_cur[index_right(i, N)]
+        )
+      );
+    }
+    total_hamming_distance += hamming_distance(state_cur, state_next);
+    state_cur = state_next;
+  }
+  // std::cout << "Duplicate found: " << state_cur << "\t in " << steps
+  //           << " step(s)." << std::endl;
+  return forward_cycle_result<N>(steps, total_hamming_distance, state_cur);
+}
+
+// Returns the number of steps, total hamming distance, and repeated state
+// found when searching a Time-Reversible Cellular Automaton for a cycle given
+// some input state.
+//
+template <size_t N>
+reverse_cycle_result<N> find_reverse_cycle(
+  int rule_num,
+  bitset<N> state_prev,
+  bitset<N> state_cur
+) {
+  // Each state comprises the values of the cells in the previous step and the
+  // current values of the cells. This means that there are 2 * (2^N) possible
+  // states.
+  // We can map each state to a unique integer since the values of all cells
+  // can be expressed as a bitset of length N. If A and B represent the
+  // integers represented by the current and past bitsets respectively, then we
+  // can assign this state the integer ((A << N) + B).
+  bitset<1 << (N * 2)> seen_states;
+  bitset<N> state_next;
+  int steps = 0;
+  int total_hamming_distance = 0;
+  while (!seen_states[(state_cur.to_ulong() << N) + state_prev.to_ulong()]) {
+    seen_states[(state_cur.to_ulong() << N) + state_prev.to_ulong()] = 1;
+    ++steps;
+    for (size_t i = 0; i < N; ++i) {
+      state_next[i] = apply_reverse_rule(
+        rule_num,
+        neighborhood(
+          state_cur[index_left(i, N)],
+          state_cur[i],
+          state_cur[index_right(i, N)]
+        ),
+        state_prev[i]
+      );
+    }
+    total_hamming_distance += hamming_distance(state_cur, state_next);
+    state_prev = state_cur;
+    state_cur = state_next;
+  }
+  // std::cout << "Duplicate found: "
+  //           << bitset<N * 2>((state_cur.to_ulong() << N) + state_prev.to_ulong())
+  //           << "\t in " << steps << " step(s)." << std::endl;
+  return reverse_cycle_result<N>(
+    steps,
+    total_hamming_distance,
+    state_prev,
+    state_cur
+  );
+}
+
+// Determines the cycle length and average hamming distance for the repeated
+// state tended to be a given Cellular Automaton and input state.
+//
+template <size_t N>
+struct analysis_result analyze_forward_cycle(
+  int rule_num,
+  bitset<N> state_cur
+) {
+  // Determine a state within the cycle.
+  struct forward_cycle_result<N> rep = find_forward_cycle(rule_num, state_cur);
+  // Determine information for the cycle.
+  struct forward_cycle_result<N> cyc = find_forward_cycle(rule_num, rep.state_cur);
+  double avg_cycle_length = double(cyc.steps) / double(1);
+  double avg_hamming_distance = double(cyc.total_hamming_distance) / double(cyc.steps);
+  return analysis_result(avg_cycle_length, avg_hamming_distance);
+}
+
+// Determines the cycle length and average hamming distance for the repeated
+// state tended to be a given Time-Reversible Cellular Automaton and input
+// state.
+//
+template <size_t N>
+struct analysis_result analyze_reverse_cycle(
+  int rule_num,
+  bitset<N> state_prev,
+  bitset<N> state_cur
+) {
+  // Determine a state within the cycle.
+  struct reverse_cycle_result<N> rep = find_reverse_cycle(rule_num, state_prev, state_cur);
+  // Determine information for the cycle.
+  struct reverse_cycle_result<N> cyc = find_reverse_cycle(rule_num, rep.state_prev, rep.state_cur);
+  double avg_cycle_length = double(cyc.steps) / double(1);
+  double avg_hamming_distance = double(cyc.total_hamming_distance) / double(cyc.steps);
+  return analysis_result(avg_cycle_length, avg_hamming_distance);
+}
+
 // Writes a bitset to standard output, replacing the ones with solid characters
 // and outputting spaces wherever there is a zero.
 //
@@ -138,24 +320,12 @@ void run_tests() {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc != 3) {
-    std::cerr << "Error: usage is " << argv[0] << "<space width> "
-              << "<number of steps>" << std::endl;
-  }
-  string str_width(argv[1]);
-  string str_steps(argv[2]);
-  if (str_width.empty() ||
-      str_width.find_first_not_of("0123456789") != std::string::npos ||
-      str_steps.empty() ||
-      str_steps.find_first_not_of("0123456789") != std::string::npos) {
-    std::cerr << "Error: command line args <space width> and <number of steps>"
-              << " must be integers." << std::endl; 
-  }
-  int input_width = std::stoi(str_width);
-  int num_steps = std::stoi(str_steps);
-  
+  // Testing rule applications and wraparound index calculation.
+  //
   // run_tests();
   
+  // Confirming that forward and reverse rule computations are done correctly.
+  //
   // bitset<18> m0;
   // bitset<18> m1("111110011000111111");
   // std::cout << "\nFORWARD:" << std::endl;
@@ -166,4 +336,13 @@ int main(int argc, char *argv[]) {
   // for (auto line : ca_reverse_rule(37, 18, m0, m1)) {
   //   write_bitset(line);
   // }
+
+  // Confirming that cycles are found and analyzed correctly.
+  //
+  bitset<12> m0("101101010110");
+  bitset<12> m1("110110111010");
+  std::cout << find_reverse_cycle(37, m0, m1).to_string() << std::endl;
+  std::cout << analyze_reverse_cycle(37, m0, m1).to_string() << std::endl;
+  std::cout << find_forward_cycle(37, m1).to_string() << std::endl;
+  std::cout << analyze_forward_cycle(37, m1).to_string() << std::endl;
 }
