@@ -2,6 +2,8 @@
 #include <cstdlib>
 
 #include <bitset>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <tuple>
@@ -18,6 +20,9 @@ using std::vector;
 // respectively).
 //
 using neighborhood = std::tuple<int, int, int>;
+
+// The number of input states used to analyze a specific Cellular Automaton.
+const int NUM_SAMPLES = 100;
 
 // Represents the result of finding a cycle for a Cellular Automaton.
 //
@@ -102,6 +107,17 @@ int hamming_distance(bitset<N> a, bitset<N> b) {
     dist += (a[i] ^ b[i]);
   }
   return dist;
+}
+
+// Generates a random bitset of size N.
+//
+template <size_t N>
+bitset<N> random_bitset() {
+  bitset<N> res;
+  for (size_t i = 0; i < N; ++i) {
+    res[i] = (rand() % 2);
+  }
+  return res;
 }
 
 // Applies a Cellular Automaton rule for a single cell given the state of that
@@ -202,8 +218,6 @@ forward_cycle_result<N> find_forward_cycle(int rule_num, bitset<N> state_cur) {
     total_hamming_distance += hamming_distance(state_cur, state_next);
     state_cur = state_next;
   }
-  // std::cout << "Duplicate found: " << state_cur << "\t in " << steps
-  //           << " step(s)." << std::endl;
   return forward_cycle_result<N>(steps, total_hamming_distance, state_cur);
 }
 
@@ -246,9 +260,6 @@ reverse_cycle_result<N> find_reverse_cycle(
     state_prev = state_cur;
     state_cur = state_next;
   }
-  // std::cout << "Duplicate found: "
-  //           << bitset<N * 2>((state_cur.to_ulong() << N) + state_prev.to_ulong())
-  //           << "\t in " << steps << " step(s)." << std::endl;
   return reverse_cycle_result<N>(
     steps,
     total_hamming_distance,
@@ -258,7 +269,7 @@ reverse_cycle_result<N> find_reverse_cycle(
 }
 
 // Determines the cycle length and average hamming distance for the repeated
-// state tended to be a given Cellular Automaton and input state.
+// state tended to by a given Cellular Automaton and input state.
 //
 template <size_t N>
 struct analysis_result analyze_forward_cycle(
@@ -275,7 +286,7 @@ struct analysis_result analyze_forward_cycle(
 }
 
 // Determines the cycle length and average hamming distance for the repeated
-// state tended to be a given Time-Reversible Cellular Automaton and input
+// state tended to by a given Time-Reversible Cellular Automaton and input
 // state.
 //
 template <size_t N>
@@ -291,6 +302,76 @@ struct analysis_result analyze_reverse_cycle(
   double avg_cycle_length = double(cyc.steps) / double(1);
   double avg_hamming_distance = double(cyc.total_hamming_distance) / double(cyc.steps);
   return analysis_result(avg_cycle_length, avg_hamming_distance);
+}
+
+// Determines the average cycle lengths and average hamming distances for a
+// given input size `N` and rule number and its Time-Reversible cognate.
+//
+template <size_t N>
+void analyze_rule(int rule_num) {
+  // Compute the forward result.
+  struct analysis_result result_forward;
+  for (int i = 0; i < NUM_SAMPLES; ++i) {
+    bitset<N> m1 = random_bitset<N>();
+    struct analysis_result res = analyze_forward_cycle(rule_num, m1);
+    result_forward.avg_cycle_length += res.avg_cycle_length;
+    result_forward.avg_hamming_distance += res.avg_hamming_distance;
+  }
+  result_forward.avg_cycle_length /= double(NUM_SAMPLES);
+  result_forward.avg_hamming_distance /= double(NUM_SAMPLES);
+  // Compute the reverse result.
+  struct analysis_result result_reverse;
+  for (int i = 0; i < NUM_SAMPLES; ++i) {
+    bitset<N> m0 = random_bitset<N>();
+    bitset<N> m1 = random_bitset<N>();
+    struct analysis_result res = analyze_reverse_cycle(rule_num, m0, m1);
+    result_reverse.avg_cycle_length += res.avg_cycle_length;
+    result_reverse.avg_hamming_distance += res.avg_hamming_distance;
+  }
+  result_reverse.avg_cycle_length /= double(NUM_SAMPLES);
+  result_reverse.avg_hamming_distance /= double(NUM_SAMPLES);
+  // Write the results to the console. TR stands for "Time-Reversed" and DC
+  // stands for "Deterministic Cognate".
+  std::cout << "TR: " << result_reverse.to_string() << "\t DC: "
+            << result_forward.to_string() << std::endl;
+}
+
+// Writes an analysis of all 256 1-Dimensional Automaton (Time-Reversible and
+// their deterministic cognates) to a specified output file in CSV format.
+//
+template <size_t N>
+void full_analysis(string outfile_name) {
+  std::ofstream outfile(outfile_name);
+  outfile << std::fixed << std::setprecision(2);
+  outfile << "FD ACL,FD AHD,TR ACL,TR AHD" << std::endl;
+  for (int rule_num = 0; rule_num < 256; ++rule_num) {
+    std::cout << "Analyzing Rule " << rule_num << "\r" << std::flush;
+    // Compute the forward result.
+    struct analysis_result result_forward;
+    for (int i = 0; i < NUM_SAMPLES; ++i) {
+      bitset<N> m1 = random_bitset<N>();
+      struct analysis_result res = analyze_forward_cycle(rule_num, m1);
+      result_forward.avg_cycle_length += res.avg_cycle_length;
+      result_forward.avg_hamming_distance += res.avg_hamming_distance;
+    }
+    result_forward.avg_cycle_length /= double(NUM_SAMPLES);
+    result_forward.avg_hamming_distance /= double(NUM_SAMPLES);
+    // Compute the reverse result.
+    struct analysis_result result_reverse;
+    for (int i = 0; i < NUM_SAMPLES; ++i) {
+      bitset<N> m0 = random_bitset<N>();
+      bitset<N> m1 = random_bitset<N>();
+      struct analysis_result res = analyze_reverse_cycle(rule_num, m0, m1);
+      result_reverse.avg_cycle_length += res.avg_cycle_length;
+      result_reverse.avg_hamming_distance += res.avg_hamming_distance;
+    }
+    result_reverse.avg_cycle_length /= double(NUM_SAMPLES);
+    result_reverse.avg_hamming_distance /= double(NUM_SAMPLES);
+    outfile << result_forward.avg_cycle_length << ","
+            << result_forward.avg_hamming_distance << ","
+            << result_reverse.avg_cycle_length << ","
+            << result_reverse.avg_hamming_distance << std::endl;
+  }
 }
 
 // Writes a bitset to standard output, replacing the ones with solid characters
@@ -320,6 +401,8 @@ void run_tests() {
 }
 
 int main(int argc, char *argv[]) {
+  srand(100);  // Produce consistent output every time.
+
   // Testing rule applications and wraparound index calculation.
   //
   // run_tests();
@@ -339,10 +422,15 @@ int main(int argc, char *argv[]) {
 
   // Confirming that cycles are found and analyzed correctly.
   //
-  bitset<12> m0("101101010110");
-  bitset<12> m1("110110111010");
-  std::cout << find_reverse_cycle(37, m0, m1).to_string() << std::endl;
-  std::cout << analyze_reverse_cycle(37, m0, m1).to_string() << std::endl;
-  std::cout << find_forward_cycle(37, m1).to_string() << std::endl;
-  std::cout << analyze_forward_cycle(37, m1).to_string() << std::endl;
+  // bitset<12> m0("101101010110");
+  // bitset<12> m1("110110111010");
+  // std::cout << find_reverse_cycle(37, m0, m1).to_string() << std::endl;
+  // std::cout << analyze_reverse_cycle(37, m0, m1).to_string() << std::endl;
+  // std::cout << find_forward_cycle(37, m1).to_string() << std::endl;
+  // std::cout << analyze_forward_cycle(37, m1).to_string() << std::endl;
+
+  // for (int i = 0; i < 256; ++i) {
+  //   analyze_rule<12>(i);
+  // }
+  full_analysis<12>("results.csv");
 }
