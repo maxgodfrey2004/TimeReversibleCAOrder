@@ -345,10 +345,11 @@ void full_analysis(string outfile_name) {
   outfile << std::fixed << std::setprecision(2);
   outfile << "FD ACL,FD AHD,TR ACL,TR AHD" << std::endl;
   for (int rule_num = 0; rule_num < 256; ++rule_num) {
-    std::cout << "Analyzing Rule " << rule_num << "\r" << std::flush;
     // Compute the forward result.
     struct analysis_result result_forward;
     for (int i = 0; i < NUM_SAMPLES; ++i) {
+      std::cout << "Analyzing Rule " << rule_num << ", FD Sample " << i << "\r"
+                << std::flush;
       bitset<N> m1 = random_bitset<N>();
       struct analysis_result res = analyze_forward_cycle(rule_num, m1);
       result_forward.avg_cycle_length += res.avg_cycle_length;
@@ -359,6 +360,8 @@ void full_analysis(string outfile_name) {
     // Compute the reverse result.
     struct analysis_result result_reverse;
     for (int i = 0; i < NUM_SAMPLES; ++i) {
+      std::cout << "Analyzing Rule " << rule_num << ", TR Sample " << i << "\r"
+                << std::flush;
       bitset<N> m0 = random_bitset<N>();
       bitset<N> m1 = random_bitset<N>();
       struct analysis_result res = analyze_reverse_cycle(rule_num, m0, m1);
@@ -429,8 +432,6 @@ int main(int argc, char *argv[]) {
   // std::cout << find_forward_cycle(37, m1).to_string() << std::endl;
   // std::cout << analyze_forward_cycle(37, m1).to_string() << std::endl;
 
-  // for (int i = 0; i < 256; ++i) {
-  //   analyze_rule<12>(i);
-  // }
+  // Analyze every rule.
   full_analysis<12>("results.csv");
 }
